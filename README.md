@@ -10,6 +10,7 @@ DSP cores.
 | USRobotics Courier | Complete harness in [courier-emu](https://github.com/D-Modem/courier-emu), used here as a dependency |
 | ZyXEL U-1496, Elite | ROM-function caller and TMS320C25 core |
 | Telebit T2500, T3000 | TMS32010 core (not yet verified) |
+| Hayes V-series Smartmodem 9600 | ADC reference model and a Z80 caller of the ROM's ADC routines |
 | Microcom AX/9624c, DeskPorte | Analysis only |
 
 ```sh

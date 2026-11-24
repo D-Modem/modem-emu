@@ -10,7 +10,9 @@ python3 -m venv .venv
 ```
 
 The `execute` extra installs Unicorn. The ZyXEL ROM-function caller uses it.
-To add the Courier family, also install the `courier` extra:
+The `hayes` extra installs the Z80 emulator (the package `z80`). The Hayes
+ROM caller uses it. To add the Courier family, also install the `courier`
+extra:
 
 ```sh
 .venv/bin/pip install -e '.[execute,test,courier]'
@@ -21,6 +23,7 @@ To add the Courier family, also install the `courier` extra:
 ```sh
 modem-emu list                          # the families and their state
 modem-emu courier info main211.xmf      # any courier-emu command
+modem-emu hayes-adc full.bin            # the Hayes firmware ADC against the model
 ```
 
 `modem-emu courier` gives all the next arguments to the courier-emu command
@@ -49,4 +52,5 @@ caller.call(0x80000 + 0x1234)              # a ROM function
 .venv/bin/python -m pytest -q
 ```
 
-The tests do not need firmware images.
+The tests do not need firmware images. To also test the Hayes ROM caller,
+set `MODEM_EMU_HAYES_ROM` to the 96 KB image (U12, then U13).

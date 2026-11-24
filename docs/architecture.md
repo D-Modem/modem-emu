@@ -29,6 +29,7 @@ modem-emu/
       __init__.py     the family table and the state of each emulator
       zyxel/          ZyXEL U-1496 and Elite
       telebit/        Telebit T2500 and T3000
+      hayes/          Hayes V-series Smartmodem 9600 (ADC)
       microcom/       Microcom AX/9624c and DeskPorte
   tests/              one test file for each core and each family
   docs/               this documentation; docs/families/ has one page for each family

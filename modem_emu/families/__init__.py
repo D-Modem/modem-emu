@@ -37,6 +37,13 @@ FAMILIES: dict[str, Family] = {
         state="TMS32010 core for the T2500 DSP programs, not yet checked. No boot.",
         location="modem_emu.cores.c10",
     ),
+    "hayes": Family(
+        name="hayes",
+        models="Hayes V-series Smartmodem 9600 (firmware 1.4)",
+        processors="Z80 (banked ROM), TI 04-00197 data pump",
+        state="Calls the ADC routines of the ROM (Z80). ADC reference model. No boot.",
+        location="modem_emu.families.hayes (extra 'hayes' for the ROM caller)",
+    ),
     "microcom": Family(
         name="microcom",
         models="Microcom AX/9624c, DeskPorte",

@@ -11,6 +11,7 @@
 - [USRobotics Courier](families/courier.md)
 - [ZyXEL](families/zyxel.md)
 - [Telebit](families/telebit.md)
+- [Hayes](families/hayes.md)
 - [Microcom](families/microcom.md)
 
 ## Style
