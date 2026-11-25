@@ -51,4 +51,11 @@ FAMILIES: dict[str, Family] = {
         state="Analysis only. No emulator yet.",
         location="-",
     ),
+    "rockwell": Family(
+        name="rockwell",
+        models="Apex Mobile Plus V.34 (RC288), later DeskPorte FAST+ and Rockwell 56K",
+        processors="Rockwell R65C19/C39 controller, Rockwell data pump DSP (mask ROM)",
+        state="Research and plan only. The data pump DSP is not documented in public.",
+        location="docs/families/rockwell.md",
+    ),
 }

@@ -13,6 +13,7 @@
 - [Telebit](families/telebit.md)
 - [Hayes](families/hayes.md)
 - [Microcom](families/microcom.md)
+- [Rockwell](families/rockwell.md)
 
 ## Style
 
