@@ -20,11 +20,11 @@ def test_c25_add_saturates_when_ovm_is_set():
 
 
 def test_c25_stack_keeps_eight_levels():
-    """The hardware stack keeps the last eight words."""
+    """The hardware stack keeps the last eight words. A pop copies the bottom word up."""
     core = c25.C25([])
     for value in range(10):
         core.push(value)
-    assert [core.pop() for _ in range(9)] == [9, 8, 7, 6, 5, 4, 3, 2, 0]
+    assert [core.pop() for _ in range(10)] == [9, 8, 7, 6, 5, 4, 3, 2, 2, 2]
 
 
 def test_c25_block_b0_moves_with_cnf():

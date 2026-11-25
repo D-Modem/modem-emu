@@ -24,6 +24,8 @@ extra:
 modem-emu list                          # the families and their state
 modem-emu courier info main211.xmf      # any courier-emu command
 modem-emu hayes-adc full.bin            # the Hayes firmware ADC against the model
+modem-emu hayes-u21-image out/u21dump   # EPROM images of the U21 ROM dump program
+modem-emu hayes-u21-decode cap.txt u21.bin  # the captured U21 dump text to a ROM image
 ```
 
 `modem-emu courier` gives all the next arguments to the courier-emu command
