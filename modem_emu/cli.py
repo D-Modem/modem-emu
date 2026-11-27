@@ -55,6 +55,50 @@ def hayes_adc_check(rom: str) -> int:
     return 0 if bad == 0 else 1
 
 
+def hayes_u21_image(out: str, clock_mhz: float, baud: int, passes: int) -> int:
+    """Write the U21 dump program as EPROM images: 16-bit, high bytes and low bytes."""
+    from pathlib import Path
+
+    from .families.hayes import u21dump
+
+    image = u21dump.build_image(int(clock_mhz * 1e6 / 4), baud, passes)
+    high, low = u21dump.split_bytes(image)
+    base = Path(out)
+    base.parent.mkdir(parents=True, exist_ok=True)
+    files = {
+        base.with_name(base.name + "-16bit-be.bin"): u21dump.to_bytes_be(image),
+        base.with_name(base.name + "-high-d15-d8.bin"): high,
+        base.with_name(base.name + "-low-d7-d0.bin"): low,
+    }
+    for path, data in files.items():
+        path.write_bytes(data)
+        print(f"{path}: {len(data)} bytes")
+    print(f"crystal {clock_mhz} MHz, CLKOUT1 {clock_mhz / 4} MHz, XF serial {baud} baud 8N1, {passes} passes")
+    return 0
+
+
+def hayes_u21_decode(capture: str, out: str) -> int:
+    """Change a captured U21 dump text into an 8 KB ROM image, and compare the passes."""
+    from pathlib import Path
+
+    from .families.hayes import u21dump
+
+    text = Path(capture).read_text(errors="replace")
+    passes = u21dump.decode_capture(text)
+    if not passes:
+        print("no dump found in the capture", file=sys.stderr)
+        return 1
+    words, problems = u21dump.merge_passes(passes)
+    Path(out).write_bytes(u21dump.to_bytes_be(words))
+    print(f"{len(passes)} passes, {len(words)} words written to {out}")
+    if problems:
+        print(f"{len(problems)} addresses are missing or do not agree, for example: "
+              + " ".join(f"{a:04X}" for a in problems[:16]))
+    for name, value in u21dump.checksums(words).items():
+        print(f"{name}: {value}")
+    return 0 if not problems and len(passes) >= 2 else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse the command line and run the command."""
     parser = argparse.ArgumentParser(prog="modem-emu", description=__doc__)
@@ -64,7 +108,19 @@ def main(argv: list[str] | None = None) -> int:
     courier.add_argument("rest", nargs=argparse.REMAINDER)
     hayes = sub.add_parser("hayes-adc", help="compare the Hayes firmware ADC with the model")
     hayes.add_argument("rom", help="the 96 KB image: U12 then U13")
+    img = sub.add_parser("hayes-u21-image", help="write the U21 (TMS320C25) ROM dump program as EPROM images")
+    img.add_argument("out", help="the start of the output file names, for example out/u21dump")
+    img.add_argument("--clock-mhz", type=float, default=40.0, help="the DSP crystal (Y1) in MHz (default 40)")
+    img.add_argument("--baud", type=int, default=9600, help="the serial bit rate on XF (default 9600)")
+    img.add_argument("--passes", type=int, default=3, help="how many times to send the ROM (default 3)")
+    dec = sub.add_parser("hayes-u21-decode", help="change a captured U21 dump text into a ROM image")
+    dec.add_argument("capture", help="the terminal log of the XF serial output")
+    dec.add_argument("out", help="the output ROM image (8 KB, big-endian words)")
     args = parser.parse_args(argv)
+    if args.command == "hayes-u21-image":
+        return hayes_u21_image(args.out, args.clock_mhz, args.baud, args.passes)
+    if args.command == "hayes-u21-decode":
+        return hayes_u21_decode(args.capture, args.out)
     if args.command == "list":
         return list_families()
     if args.command == "hayes-adc":

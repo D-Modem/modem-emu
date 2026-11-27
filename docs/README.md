@@ -11,8 +11,12 @@
 - [USRobotics Courier](families/courier.md)
 - [ZyXEL](families/zyxel.md)
 - [Telebit](families/telebit.md)
-- [Hayes](families/hayes.md)
+- [Hayes](families/hayes.md), and the [U21 data pump ROM dump](families/hayes-u21-dump.md)
 - [Microcom](families/microcom.md)
+
+## Processor cores
+
+- [TMS320C25](cores/c25.md): the core, the check against MAME, and the limits
 
 ## Style
 

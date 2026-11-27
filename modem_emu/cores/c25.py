@@ -1,7 +1,16 @@
 """TMS320C25 instruction-level emulator.
 
-Best effort, written from the TI user's guide. It runs the ZyXEL Elite DSP
-programs. Usage: ``e = C25(prog_words); e.inp[port] = fn; e.out[port] = fn``.
+Written from the TI "Second-Generation TMS320 User's Guide" (SPRU014, 1987).
+The instruction behaviour was checked against the MAME ``tms32025.cpp`` core
+(refer to ``docs/cores/c25.md``). It runs the ZyXEL Elite DSP programs.
+
+Usage: ``e = C25(prog_words); e.inp[port] = fn; e.out[port] = fn``.
+
+The core has the MP/MC pin (``e.mp_mc``) and the 4K-word on-chip mask ROM
+(``e.rom``). When ``mp_mc`` is 1 (microprocessor mode), program addresses
+0x0000-0x0FFF are external (``e.pm``). When it is 0 (microcomputer mode),
+they are the on-chip ROM. The pin is not latched, so a test can change it
+at any time, as on the real chip.
 """
 import struct
 
@@ -20,6 +29,25 @@ def s32(x):
     return x - 0x100000000 if x & 0x80000000 else x
 
 
+def _cycle_table():
+    """Return the cycle count of each instruction, by the high byte (0xCE and 0xDx have their own rules).
+
+    The counts are for on-chip program and data memory, with no wait states.
+    They are the same as the MAME core. They are approximate for some
+    instructions (refer to ``docs/cores/c25.md``).
+    """
+    t = [1] * 256
+    t[0x58] = 3
+    for h in [0x59, 0x5C, 0x5D, 0x5E, 0x5F] + list(range(0x80, 0x90)) + list(range(0xE0, 0x100)) + \
+            list(range(0xD0, 0xE0)):
+        t[h] = 2
+    return t
+
+
+CYCLES = _cycle_table()
+CE_CYCLES = {0x1E: 2, 0x1F: 3, 0x24: 2, 0x25: 2, 0x26: 2}
+
+
 class Halt(Exception):
     """The core found an opcode that it does not know."""
 
@@ -27,18 +55,28 @@ class Halt(Exception):
 class C25:
     """One TMS320C25 core: program memory, data memory, registers and I/O ports."""
 
-    def __init__(s, prog):
-        """Make a core with the program words at program address 0, in the reset state."""
+    def __init__(s, prog, rom=None, mp_mc=1):
+        """Make a core in the reset state.
+
+        prog: the external program words, from program address 0.
+        rom: the on-chip mask ROM words (at most 4096), or None for an empty ROM.
+        mp_mc: the level of the MP/MC pin (1 = external memory at 0x0000-0x0FFF).
+        """
         s.pm = [0] * 0x10000
         for i, w in enumerate(prog):
             s.pm[i] = w
+        s.rom = [0] * 0x1000
+        for i, w in enumerate(rom or []):
+            s.rom[i] = w & 0xFFFF
+        s.mp_mc = mp_mc
+        s.xf_out = None     # fn(level, cycles) when XF changes
         s.dm = [0] * 0x10000
         s.b0 = [0] * 256
         s.acc = 0; s.p = 0; s.t = 0
         s.ar = [0] * 8; s.arp = 0; s.arb = 0; s.dp = 0
         s.ov = 0; s.ovm = 0; s.intm = 1; s.cnf = 0; s.tc = 0; s.sxm = 1
         s.c = 0; s.hm = 1; s.fsm = 0; s.xf = 0; s.fo = 0; s.txm = 0; s.pm_ = 0
-        s.stack = []
+        s.stack = [0] * 8   # index 0 is the top of the stack
         s.pc = 0; s.rpt = 0
         s.inp = {}; s.out = {}
         s.bio = lambda: True
@@ -68,17 +106,25 @@ class C25:
         s.dm[a] = v
 
     def prd(s, a):
-        """Read one program word. Block B0 replaces program addresses 0xFF00-0xFFFF when CNF is 1."""
+        """Read one program word.
+
+        Block B0 replaces program addresses 0xFF00-0xFFFF when CNF is 1. The
+        on-chip ROM replaces addresses 0x0000-0x0FFF when MP/MC is 0.
+        """
         a &= 0xFFFF
         if a >= 0xFF00 and s.cnf:
             return s.b0[a - 0xFF00]
+        if a < 0x1000 and not s.mp_mc:
+            return s.rom[a]
         return s.pm[a]
 
     def pwr(s, a, v):
-        """Write one program word."""
+        """Write one program word. A write to the on-chip ROM has no effect."""
         a &= 0xFFFF
         if a >= 0xFF00 and s.cnf:
             s.b0[a - 0xFF00] = v & 0xFFFF
+        elif a < 0x1000 and not s.mp_mc:
+            return
         else:
             s.pm[a] = v & 0xFFFF
 
@@ -103,8 +149,11 @@ class C25:
         s.xf = (v >> 4) & 1; s.fo = (v >> 3) & 1; s.txm = (v >> 2) & 1; s.pm_ = v & 3
 
     # ---- operand address
-    def ea(s, l):
-        """Return the effective data address for the low byte l, and apply the AR changes."""
+    def ea(s, l, keep_arp=False):
+        """Return the effective data address for the low byte l, and apply the AR changes.
+
+        keep_arp: do not apply the next-ARP field (LST, LST1, SST and SST1 do not use it).
+        """
         if not l & 0x80:
             return (s.dp << 7) | (l & 0x7F)
         a = s.ar[s.arp]
@@ -116,7 +165,7 @@ class C25:
         elif m == 6: s.ar[cur] = (a + s.ar[0]) & 0xFFFF
         elif m in (4, 7):
             s.ar[cur] = s.brev(a, s.ar[0], m == 7)
-        if l & 8:
+        if l & 8 and not keep_arp:
             s.arb = s.arp; s.arp = l & 7
         return a
 
@@ -161,14 +210,14 @@ class C25:
         return [p, p << 1, p << 4, p >> 6][s.pm_]
 
     def push(s, v):
-        """Push a word on the 8-level hardware stack."""
-        s.stack.append(v & 0xFFFF)
-        if len(s.stack) > 8:
-            s.stack.pop(0)
+        """Push a word on the 8-level hardware stack. The bottom word is lost."""
+        s.stack = [v & 0xFFFF] + s.stack[:7]
 
     def pop(s):
-        """Pop a word from the hardware stack (0 when the stack is empty)."""
-        return s.stack.pop() if s.stack else 0
+        """Pop a word from the hardware stack. The bottom word is copied up, as on the chip."""
+        v = s.stack[0]
+        s.stack = s.stack[1:] + [s.stack[7]]
+        return v
 
     # ---- interrupts
     VEC = {'RS': 0, 'INT0': 2, 'INT1': 4, 'INT2': 6, 'TINT': 0x18, 'RINT': 0x1A, 'XINT': 0x1C}
@@ -220,9 +269,13 @@ class C25:
                 for _ in range(cnt + 1):
                     s.blk(x, src); src += 1
                 return
-            if (x >> 8) == 0x58 or (x >> 8) == 0x59:  # TBLR/TBLW increment ACC address
+            if (x >> 8) == 0x58 or (x >> 8) == 0x59:  # TBLR/TBLW: the PFC counts, ACC does not change
+                pfc = s.acc & 0xFFFF
                 for _ in range(cnt + 1):
-                    s.exe(x, pc, rep=True)
+                    s.exe(x, pc, pfc=pfc); pfc = (pfc + 1) & 0xFFFF
+                return
+            if x == 0x5500:     # RPT of NOP: only the time changes
+                s.cycles += cnt + 1
                 return
             for _ in range(cnt + 1):
                 s.pc = nx
@@ -250,10 +303,13 @@ class C25:
         else:
             s.wr(a, s.rd(src))
 
-    def exe(s, x, pc, rep=False):
-        """Decode and execute one instruction word."""
+    def exe(s, x, pc, pfc=None):
+        """Decode and execute one instruction word.
+
+        pfc: the program address for TBLR and TBLW in a repeat (None = the low word of ACC).
+        """
         h = x >> 8; l = x & 0xFF
-        s.cycles += 1
+        s.cycles += CE_CYCLES.get(l, 1) if h == 0xCE else CYCLES[h]
         # branches
         if h in (0xFF, 0xFE, 0xFB, 0xF9, 0xF8, 0xF4, 0xF1, 0xFA, 0xF2, 0xF3, 0xF7, 0xF5, 0xF0, 0xF6, 0x5E, 0x5F) and \
                 not (h == 0x5E and False):
@@ -265,8 +321,8 @@ class C25:
                 cond = {0xFF: True, 0xFE: True, 0xF9: s.tc == 1, 0xF8: s.tc == 0, 0xF4: a >= 0, 0xF1: a > 0,
                         0xFA: s.bio(), 0xF2: a <= 0, 0xF3: a < 0, 0xF7: s.ov == 0, 0xF5: a != 0,
                         0xF0: s.ov == 1, 0xF6: a == 0, 0x5E: s.c == 1, 0x5F: s.c == 0}[h]
-                if h == 0xF0 and cond:
-                    s.ov = 0
+                if (h == 0xF0 and cond) or (h == 0xF7 and not cond):
+                    s.ov = 0    # BV and BNV clear OV when OV was 1
             if l & 0x80:
                 s.ea(l)
             if cond:
@@ -305,22 +361,24 @@ class C25:
             elif op == 1: s.acc = d
             elif op == 2: s.acc = s32(s.ext(d) << (s.t & 15))
             elif op == 3: s.setacc_add(s.acc, d + s.c)
-            elif op == 4:
-                s.setacc_sub(s.acc, d << 16)
+            elif op == 4:  # SUBH: a borrow clears C, else C does not change
+                c0 = s.c; s.setacc_sub(s.acc, d << 16); s.c = s.c & c0
             elif op == 5: s.setacc_sub(s.acc, d)
             elif op == 6: s.setacc_sub(s.acc, s.ext(d) << (s.t & 15))
-            elif op == 7:  # SUBC
-                diff = (s.acc & M32) - ((d << 15) & M32)
-                if diff >= 0:
-                    s.acc = s32((diff << 1) + 1)
+            elif op == 7:  # SUBC: OV and C change, OVM has no effect
+                sub = s32(d << 15); r = s.acc - sub
+                if r > 0x7FFFFFFF or r < -0x80000000:
+                    s.ov = 1
+                s.c = 0 if (s.acc & M32) < (sub & M32) else 1
+                if (s.acc & M32) >= (sub & M32):
+                    s.acc = s32((r << 1) | 1)
                 else:
                     s.acc = s32(s.acc << 1)
-            elif op == 8:
-                c0 = s.c; s.setacc_add(s.acc, d << 16)
-                s.c = s.c or c0 if False else s.c
+            elif op == 8:  # ADDH: a carry sets C, else C does not change
+                c0 = s.c; s.setacc_add(s.acc, d << 16); s.c = s.c | c0
             elif op == 9: s.setacc_add(s.acc, d)
             elif op == 10: s.setacc_add(s.acc, s.ext(d) << (s.t & 15))
-            elif op == 11: s.rpt = d + 1
+            elif op == 11: s.rpt = (d & 0xFF) + 1
             elif op == 12: s.acc = s32((s.acc & 0xFFFF0000) | ((s.acc ^ d) & 0xFFFF))
             elif op == 13: s.acc = s32((s.acc & 0xFFFF0000) | ((s.acc | d) & 0xFFFF))
             elif op == 14: s.acc = s.acc & d
@@ -331,7 +389,7 @@ class C25:
         if h in (0x5C, 0x5D):
             pma = s.prd(s.pc); s.pc += 1; s.mac(x, pma); return
         if h < 0x5E:
-            op = h - 0x50; a = s.ea(l)
+            op = h - 0x50; a = s.ea(l, keep_arp=h in (0x50, 0x51))
             if op == 0: v = s.rd(a); intm = s.intm; s.lst0(v)
             elif op == 1: s.lst1(s.rd(a))
             elif op == 2: s.dp = s.rd(a) & 0x1FF
@@ -341,11 +399,9 @@ class C25:
             elif op == 6: s.wr(a + 1, s.rd(a))
             elif op == 7: s.tc = (s.rd(a) >> (15 - (s.t & 15))) & 1
             elif op == 8:
-                s.wr(a, s.prd(s.acc & 0xFFFF))
-                if rep: s.acc = s32(s.acc + 1)
+                s.wr(a, s.prd(s.acc & 0xFFFF if pfc is None else pfc))
             elif op == 9:
-                s.pwr(s.acc & 0xFFFF, s.rd(a))
-                if rep: s.acc = s32(s.acc + 1)
+                s.pwr(s.acc & 0xFFFF if pfc is None else pfc, s.rd(a))
             elif op == 10:  # SQRS
                 d = s.rd(a); s.setacc_sub(s.acc, s.pshift()); s.t = d; s.p = s32(s16(d) * s16(d))
             elif op == 11:
@@ -359,8 +415,8 @@ class C25:
             v = s.ar[h & 7]; a = s.ea(l); s.wr(a, v); return
         if h < 0x7E:
             op = h - 0x78
-            if op == 0: v = s.st0(); a = (l & 0x7F) if not l & 0x80 else s.ea(l); s.wr(a, v)
-            elif op == 1: v = s.st1(); a = (l & 0x7F) if not l & 0x80 else s.ea(l); s.wr(a, v)
+            if op == 0: v = s.st0(); a = (l & 0x7F) if not l & 0x80 else s.ea(l, True); s.wr(a, v)
+            elif op == 1: v = s.st1(); a = (l & 0x7F) if not l & 0x80 else s.ea(l, True); s.wr(a, v)
             elif op == 2: a = s.ea(l); s.wr(a, s.pop())
             elif op == 3: a = s.ea(l); s.acc = s32((s.rd(a) << 16) | 0x8000)
             elif op == 4: a = s.ea(l); s.wr(a, s.pshift() & 0xFFFF)
@@ -412,7 +468,10 @@ class C25:
         elif l == 6: s.sxm = 0
         elif l == 7: s.sxm = 1
         elif 8 <= l <= 0xB: s.pm_ = l - 8
-        elif l in (0xC, 0xD): s.xf = l - 0xC
+        elif l in (0xC, 0xD):
+            s.xf = l - 0xC
+            if s.xf_out:
+                s.xf_out(s.xf, s.cycles)
         elif l in (0xE, 0xF): s.fo = l - 0xE
         elif l == 0x14: s.acc = s32(s.pshift())
         elif l == 0x15: s.setacc_add(s.acc, s.pshift())
@@ -422,10 +481,11 @@ class C25:
             s.c = s.acc & 1
             s.acc = (s.acc >> 1) if s.sxm else ((s.acc & M32) >> 1)
             s.acc = s32(s.acc)
-        elif l == 0x1B:
+        elif l == 0x1B:  # ABS clears C
             if s.acc == -0x80000000:
                 s.ov = 1; s.acc = 0x7FFFFFFF if s.ovm else s.acc
             else: s.acc = abs(s.acc)
+            s.c = 0
         elif l == 0x1C: s.push(s.acc & 0xFFFF)
         elif l == 0x1D: s.acc = s.pop()
         elif l == 0x1E: s.push(s.pc); s.pc = 0x1E
@@ -444,7 +504,7 @@ class C25:
             c = s.c; s.c = s.acc & 1; s.acc = s32(((s.acc & M32) >> 1) | (c << 31))
         elif l in (0x36, 0x37): s.fsm = l - 0x36
         elif l in (0x38, 0x39): s.hm = l - 0x38
-        elif 0x3C <= l <= 0x3F: s.cnf = 1 if l > 0x3C else 0
+        elif 0x3C <= l <= 0x3F: pass   # CONF is a TMS320C26 instruction; no effect on the C25
         elif 0x50 <= l <= 0x53:
             a = s.ar[s.arp]; b = s.ar[0]
             s.tc = int([a == b, a < b, a > b, a != b][l - 0x50])
