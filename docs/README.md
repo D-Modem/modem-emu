@@ -18,6 +18,7 @@
 ## Processor cores
 
 - [TMS320C25](cores/c25.md): the core, the check against MAME, and the limits
+- [Rockwell R65C19 / C39](cores/r65c19.md): the modem controller CPU of the Rockwell family
 
 ## Style
 
