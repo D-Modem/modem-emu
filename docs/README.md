@@ -13,6 +13,7 @@
 - [Telebit](families/telebit.md)
 - [Hayes](families/hayes.md), and the [U21 data pump ROM dump](families/hayes-u21-dump.md)
 - [Microcom](families/microcom.md)
+- [Rockwell](families/rockwell.md)
 
 ## Processor cores
 
