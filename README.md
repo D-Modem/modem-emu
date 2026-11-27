@@ -12,7 +12,7 @@ DSP cores.
 | Telebit T2500, T3000 | TMS32010 core (not yet verified) |
 | Hayes V-series Smartmodem 9600 | ADC reference model and a Z80 caller of the ROM's ADC routines |
 | Microcom AX/9624c, DeskPorte | Analysis only |
-| Rockwell (Apex Mobile Plus V.34, then other Rockwell modems) | Research and plan only |
+| Rockwell (Apex Mobile Plus V.34, then other Rockwell modems) | C39 controller core. The Apex firmware boots to the data pump handshake. |
 
 ```sh
 pip install -e '.[execute]'      # add ,courier for the Courier family

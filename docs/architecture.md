@@ -25,6 +25,7 @@ modem-emu/
     cores/            CPU and DSP cores that more than one family can use
       c10.py          TMS32010 (Telebit T2500 DSPs)
       c25.py          TMS320C25 (ZyXEL Elite DSPs, Telebit T3000 DSPs)
+      r65c19.py       Rockwell R65C19 / C39 (Rockwell modem controllers)
     families/
       __init__.py     the family table and the state of each emulator
       zyxel/          ZyXEL U-1496 and Elite

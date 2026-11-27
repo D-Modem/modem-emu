@@ -29,7 +29,14 @@ We found no public description of the instruction set of the data pump DSP.
 
 ## What is in modem-emu
 
-Nothing yet. This page and the entry in the family table are the start.
+| Part | File | State |
+|---|---|---|
+| R65C19 / C39 core | `modem_emu/cores/r65c19.py` | All opcodes, the interrupts, the C39 bank select logic and a disassembler. Refer to [the core page](../cores/r65c19.md). |
+
+The Apex 1.601-US firmware boots on the core and stops at the data pump
+handshake. It waits for the ready code in data pump registers 1C and 1D,
+and then for bit 3 of register 1E. The data pump model must give these
+values.
 
 ## The approach
 
@@ -45,7 +52,6 @@ modulation.
 
 ## Open items
 
-- A C39 core in `modem_emu/cores/`
 - An Apex board model that boots to an AT prompt
 - The data pump model
 - The DSP instruction set and a read of the mask ROM
