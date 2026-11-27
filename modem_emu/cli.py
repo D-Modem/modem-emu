@@ -99,6 +99,30 @@ def hayes_u21_decode(capture: str, out: str) -> int:
     return 0 if not problems and len(passes) >= 2 else 1
 
 
+def rockwell_apex(image: str, dsp_ram: str | None, eeprom: str | None, commands: list[str]) -> int:
+    """Boot the Apex Mobile Plus V.34 firmware, then send AT commands (from the arguments or from stdin).
+
+    eeprom: a file for the 2 KB serial EEPROM. If the file exists, the board starts with its
+    content. After the commands, the board writes the EEPROM content back to the file when
+    the firmware changed it (for example, the factory profiles after the first boot, or AT&W).
+    """
+    from pathlib import Path
+
+    from .families.rockwell.apex import ApexBoard, load_ram_dump
+
+    board = ApexBoard(Path(image).read_bytes(),
+                      load_ram_dump(dsp_ram) if dsp_ram else None,
+                      Path(eeprom).read_bytes() if eeprom and Path(eeprom).exists() else None)
+    board.boot()
+    lines = commands or (line.rstrip("\r\n") for line in sys.stdin)
+    for line in lines:
+        sys.stdout.write(board.command(line))
+        sys.stdout.flush()
+    if eeprom and board.eeprom.dirty:
+        Path(eeprom).write_bytes(bytes(board.eeprom.mem))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse the command line and run the command."""
     parser = argparse.ArgumentParser(prog="modem-emu", description=__doc__)
@@ -116,7 +140,14 @@ def main(argv: list[str] | None = None) -> int:
     dec = sub.add_parser("hayes-u21-decode", help="change a captured U21 dump text into a ROM image")
     dec.add_argument("capture", help="the terminal log of the XF serial output")
     dec.add_argument("out", help="the output ROM image (8 KB, big-endian words)")
+    apex = sub.add_parser("rockwell-apex", help="boot the Apex Mobile Plus V.34 firmware and send AT commands")
+    apex.add_argument("image", help="the 128 KB flash image (for example, firmware 1.601-US)")
+    apex.add_argument("commands", nargs="*", help="AT command lines; with none, read lines from stdin")
+    apex.add_argument("--dsp-ram", help="a DSP RAM dump (16-bit big-endian words) for the data pump model")
+    apex.add_argument("--eeprom", help="a file for the 2 KB serial EEPROM: read at start if it exists, written back if it changed (default: a blank part)")
     args = parser.parse_args(argv)
+    if args.command == "rockwell-apex":
+        return rockwell_apex(args.image, args.dsp_ram, args.eeprom, args.commands)
     if args.command == "hayes-u21-image":
         return hayes_u21_image(args.out, args.clock_mhz, args.baud, args.passes)
     if args.command == "hayes-u21-decode":
